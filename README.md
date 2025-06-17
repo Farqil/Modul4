@@ -221,5 +221,6 @@ Sistem operasi berhasil menjalankan semua skenario pengujian, membuktikan bahwa 
 
 ![Screenshot From 2025-06-17 07-33-11](https://github.com/user-attachments/assets/a79ebaab-8c8d-430f-a407-fb31a67dbc54)
 
+![image](https://github.com/user-attachments/assets/ef2b82bc-d9c4-48da-be4c-2760aac3cdd4)
 
 Screenshot di atas menunjukkan bahwa perintah `echo` dan perintah berantai `echo | wc` keduanya memberikan output yang benar dan sesuai harapan. Ini menandakan bahwa seluruh komponen, dari pembacaan input, parsing, eksekusi, hingga mekanisme pipa, telah berfungsi secara sinergis.
