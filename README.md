@@ -116,7 +116,7 @@ sudo -u DainTontas cat /mnt/troll/very_spicy_info.txt
 ![image](https://github.com/user-attachments/assets/b228a9f3-1208-4fd6-aa53-91a1290860d3)
 
 ## Task 4
-## 1. Implementasi dan Detail Tekni
+## 1. Implementasi dan Detail Teknis
 Fungsionalitas sistem terbagi menjadi beberapa komponen utama yang saling berinteraksi.
 
 ### 1.1. Pustaka Standar (`src/std_lib.c`)
