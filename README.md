@@ -1,4 +1,3 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/V7fOtAk7)
 |    NRP     |      Name      |
 | :--------: | :------------: |
 | 5025241015 | Farrel Aqilla Novianto |
@@ -20,7 +19,218 @@
 
 ### Laporan Resmi Praktikum Modul 4 _(Module 4 Lab Work Report)_
 
-## Task 3
+## Task 1 (Farrel)
+
+## a. Setup Direktori dan Pembuatan User
+## b. Akses Mount Point
+## c. Read-Only untuk Semua User
+## d. Akses Public Folder
+## e. Akses Private Folder yang Terbatas
+
+## Task 2 (Farrel)
+
+## a. Ekstensi File Tersembunyi
+Semua file yang ditampilkan dalam FUSE mountpoint harus memiliki ekstensi yang disembunyikan. Misalnya, file lawal.txt hanya akan muncul sebagai lawak dalam hasil perintah ls. Namun, akses terhadap file (misalnya dengan cat) tetap harus memetakan ke file asli (lawak.txt). 
+
+Pada fitur ini, fungsi utama yang dimodifikasi adalah readdir. Dalam fungsi ini, setiap entri yang ditampilkan kepada pengguna akan dipotong bagian ekstensinya (yaitu string setelah titik terakhir .). Hal ini dilakukan agar pengguna hanya melihat nama dasar dari file. Saat file diakses, misalnya cat /mnt/lawak/document, maka pada fungsi-fungsi seperti access, getattr, dan open, dilakukan pencocokan nama dasar tersebut dengan nama file yang ada di direktori sumber.
+
+```c
+void rm_ext(const char *src, char *dest) {
+    strcpy(dest, src);
+    char *dot = strrchr(dest, '.');
+    if (dot) *dot = '\0';
+}
+
+static int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t off, struct fuse_file_info *fi) {
+    char p[1024];
+    DIR *dp; struct dirent *de;
+    if (strcmp(path, "/") == 0) dp = opendir(dirpath);
+    else { sprintf(p, "%s%s", dirpath, path); dp = opendir(p); }
+    if (!dp) return -errno;
+
+    filler(buf, ".", NULL, 0);
+    filler(buf, "..", NULL, 0);
+
+    while ((de = readdir(dp))) {
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
+        char name[256]; rm_ext(de->d_name, name);
+        filler(buf, name, NULL, 0);
+    }
+    closedir(dp);
+    return 0;
+}
+```
+Direktori asli:
+
+![Screenshot from 2025-06-18 05-21-08](https://github.com/user-attachments/assets/6fce5497-787a-452b-96fd-5a143b6cd11b)
+
+Direktori FUSE:
+
+![Screenshot from 2025-06-18 05-21-42](https://github.com/user-attachments/assets/3fa7b7a3-2c0a-430a-8a95-a056fa6b2403)
+
+## b. Pembatasan Akses File secret Berdasarkan Waktu
+File yang nama dasarnya mengandung "secret" hanya bisa diakses pada pukul 08:00 hingga 18:00. Di luar jam tersebut, file harus dianggap tidak ada (ditolak dengan ENOENT). Logika pembatasan waktu diterapkan di beberapa fungsi, seperti access, getattr, dan readdir. File dicek apakah namanya mengandung kata secret, dan jika iya, sistem akan mengecek waktu saat ini. Jika tidak dalam rentang waktu yang diizinkan, maka file tidak akan ditampilkan atau diakses.
+
+```c
+bool is_secret(const char *name) {
+    char tmp[256]; rm_ext(name, tmp);
+    return strcmp(tmp, secret_file_basename) == 0;
+}
+
+bool is_allowed_time() {
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    return tm->tm_hour >= access_start_hour && tm->tm_hour < access_end_hour;
+}
+```
+![Screenshot from 2025-06-18 05-23-13](https://github.com/user-attachments/assets/398012a0-6a3e-4239-8a6e-66b92cab38db)
+
+`Note` ENOENT karena saya akses pada jam 05.00 yang dimana diluar batas akses
+
+## c. Filtering Konten Dinamis
+Semua file teks yang dibaca akan disensor: kata-kata tertentu seperti ducati, mu, dll akan diganti menjadi lawak. Untuk file biner, isi file akan ditampilkan dalam bentuk base64 secara dinamis. Jenis file ditentukan berdasarkan hasil eksekusi file --mime-type. Jika hasilnya text/plain, maka dilakukan filtering dengan mengganti kata-kata dari daftar ke kata "lawak". Sedangkan jika tipe file adalah binary (non-teks), maka kontennya dikonversi ke base64 saat dibaca.
+
+```c
+static const char *kata_lawak[] = {"ducati","ferrari","mu","chelsea","prx","onic","sisop", NULL};
+
+bool is_text_file(const char *path) {
+    const char *ext = strrchr(path, '.');
+    return ext && (strcmp(ext, ".txt")==0 || strcmp(ext, ".md")==0 || strcmp(ext, ".c")==0 || strcmp(ext, ".h")==0 || strcmp(ext, ".log")==0);
+}
+
+static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+char *to_base64(const unsigned char *buf, int len, int *out_len){
+    int olen = ((len + 2) / 3) * 4;
+    char *out = malloc(olen + 1);
+    char *p = out;
+    for(int i = 0; i < len; i += 3){
+        int v = buf[i] << 16 | (i+1 < len ? buf[i+1] << 8 : 0) | (i+2 < len ? buf[i+2] : 0);
+        *p++ = b64[(v >> 18) & 0x3F];
+        *p++ = b64[(v >> 12) & 0x3F];
+        *p++ = (i+1 < len) ? b64[(v >> 6) & 0x3F] : '=';
+        *p++ = (i+2 < len) ? b64[v & 0x3F] : '=';
+    }
+    *p = 0;
+    *out_len = p - out;
+    return out;
+}
+
+void filter_lawak(char *buf){
+    char temp[8192] ={0};
+    int i = 0;
+    while(buf[i]){
+        char word[256] ={0};
+        int j = 0;
+        while(buf[i] && buf[i] != ' ' && buf[i] != '\n') word[j++] = buf[i++];
+        word[j] = '\0';
+        bool found = false;
+        for(int k = 0; filter_words[k]; k++){
+            if(strcasecmp(word, filter_words[k]) == 0){
+                strcat(temp, "lawak");
+                found = true;
+                break;
+            }
+        }
+        if(!found && strlen(word) > 0) strcat(temp, word);
+        if(buf[i] == ' ' || buf[i] == '\n') strncat(temp, &buf[i++], 1);
+    }
+    strcpy(buf, temp);
+}
+```
+`cat` di direktori asli:
+
+![Screenshot from 2025-06-18 05-25-58](https://github.com/user-attachments/assets/178a146b-42d1-4677-9563-6b7a2e94cab8)
+
+`cat` di direktori FUSE:
+
+![Screenshot from 2025-06-18 05-24-29](https://github.com/user-attachments/assets/7994ade1-9c76-4412-8e0b-c8d44ecf61ba)
+![Screenshot from 2025-06-18 05-25-26](https://github.com/user-attachments/assets/2ba30d83-a0f9-445b-aa31-7f9c5810cebc)
+
+## d. Logging Akses
+Setiap file yang berhasil diakses (READ, ACCESS) harus dicatat ke file /var/log/lawakfs.log. File log akan menuliskan timestamp, UID, jenis akses, dan path file. Logging hanya dilakukan jika akses berhasil.
+
+```c
+void tulis_log(const char *action, const char *path) {
+    if(strcmp(path, "/") == 0) return;
+    FILE *f = fopen("/var/log/lawakfs.log", "a");
+    if (!f) return;
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    struct fuse_context *ctx = fuse_get_context();
+    uid_t uid = ctx ? ctx->uid : getuid();
+    fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d] [%d] [%s] %s\n",
+        tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+        tm->tm_hour, tm->tm_min, tm->tm_sec,
+        uid, action, path);
+    fclose(f);
+}
+```
+Lalu saya menjalankan `tail /var/log/lawakfs.log` untuk melihat log terbaru
+
+![Screenshot from 2025-06-18 05-28-45](https://github.com/user-attachments/assets/7babedee-6202-4525-8d48-e0cb0c87b876)
+
+## d. Konfigurasi Eksternal lawak.conf
+Semua parameter konfigurasi, seperti nama file secret, daftar kata filter, dan rentang waktu akses, harus disimpan dalam file lawak.conf dan bisa diubah sewaktu-waktu tanpa recompile. Dimana saya isi file `lawak.conf` dengan:
+```conf
+FILTER_WORDS=ducati,ferrari,mu,chelsea,prx,onic,sisop
+SECRET_FILE_BASENAME=secret
+ACCESS_START=08:00
+ACCESS_END=18:00
+```
+File ini dibaca sekali di awal program menggunakan fungsi load_config(). Isi konfigurasi digunakan secara global di seluruh modul FUSE.
+```c
+static char *filter_words[50];
+static char secret_file_basename[64];
+static int access_start_hour;        
+static int access_end_hour;
+
+void load_config(){
+    FILE *f = fopen(config_file, "r");
+    if(!f){
+        fprintf(stderr, "Gagal membuka config: %s\n", config_file);
+        exit(EXIT_FAILURE);
+    }
+    char line[256];
+    while(fgets(line, sizeof(line), f)){
+        char *key = strtok(line, "=");
+        char *val = strtok(NULL, "\n");
+        if(!key || !val) continue;
+        if(strcmp(key, "FILTER_WORDS") == 0){
+            int i = 0;
+            char *token = strtok(val, ",");
+            while(token && i < 49){
+                filter_words[i++] = strdup(token);
+                token = strtok(NULL, ",");
+            }
+            filter_words[i] = NULL;
+        } 
+        else if(strcmp(key, "SECRET_FILE_BASENAME") == 0){
+            strncpy(secret_file_basename, val, sizeof(secret_file_basename) - 1);
+            secret_file_basename[sizeof(secret_file_basename) - 1] = '\0';
+        } 
+        else if(strcmp(key, "ACCESS_START") == 0){
+            int hour, min;
+            if(sscanf(val, "%d:%d", &hour, &min) == 2) access_start_hour = hour;
+        } 
+        else if(strcmp(key, "ACCESS_END") == 0){
+            int hour, min;
+            if(sscanf(val, "%d:%d", &hour, &min) == 2) access_end_hour = hour;
+        }
+    }
+    fclose(f);
+}
+
+int main(int argc, char *argv[]){
+    umask(0);
+    load_config();
+    return fuse_main(argc, argv, &xmp_oper, NULL);
+}
+```
+Setelah saya compile dan mount kembali, command-command yang sudah saya buat sebelumnya masih berfungsi dan sesuai
+
+![Screenshot from 2025-06-18 05-34-58](https://github.com/user-attachments/assets/2b0255e2-8ab0-4ea5-95d4-8f05a0368404)
+
+## Task 3 (Marco)
 ## a. Persiapan: Pembuatan Akun Pengguna (Poin a)
 Langkah pertama adalah membuat tiga akun pengguna lokal (DainTontas, SunnyBolt, Ryeku) yang akan menjadi aktor dalam skenario ini.
 
@@ -111,7 +321,7 @@ sudo -u DainTontas cat /mnt/troll/very_spicy_info.txt
 ```
 ![image](https://github.com/user-attachments/assets/b228a9f3-1208-4fd6-aa53-91a1290860d3)
 
-## Task 4
+## Task 4 (Marco)
 ## 1. Implementasi dan Detail Teknis
 Fungsionalitas sistem terbagi menjadi beberapa komponen utama yang saling berinteraksi.
 
