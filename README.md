@@ -29,6 +29,12 @@
 
 ## Task 2 (Farrel)
 
+Sebelum melanjutkan saya membuat source directory `perlawakan` di `home/farqil` serta membuat FUSE mount point di `home/farqil/Modul4/task-2/mnt/lawak`. setelah membuat file `lawak.c` maka saya compile dengan sintaks
+
+````gcc -Wall `pkg-config fuse --cflags` lawak.c -o output `pkg-config fuse --libs```` 
+
+setelah itu saya mount ke mount point dengan sintaks `./output mnt/lawak` untuk poin a), b), dan c) yang nanti berganti menjadi `sudo ./output mnt/lawak/ -o allow_other` untuk poin d) dan e) karena dibutuhkan root untuk menulis log ke /var/log lalu penggunaan `-o allow_other` agar semua user bisa mengakses FUSE mount point.
+
 ## a. Ekstensi File Tersembunyi
 Semua file yang ditampilkan dalam FUSE mountpoint harus memiliki ekstensi yang disembunyikan. Misalnya, file lawal.txt hanya akan muncul sebagai lawak dalam hasil perintah ls. Namun, akses terhadap file (misalnya dengan cat) tetap harus memetakan ke file asli (lawak.txt). 
 
@@ -68,7 +74,7 @@ Direktori FUSE:
 
 ![Screenshot from 2025-06-18 05-21-42](https://github.com/user-attachments/assets/3fa7b7a3-2c0a-430a-8a95-a056fa6b2403)
 
-## b. Pembatasan Akses File secret Berdasarkan Waktu
+## b. Akses Berbasis Waktu untuk File Secret
 File yang nama dasarnya mengandung "secret" hanya bisa diakses pada pukul 08:00 hingga 18:00. Di luar jam tersebut, file harus dianggap tidak ada (ditolak dengan ENOENT). Logika pembatasan waktu diterapkan di beberapa fungsi, seperti access, getattr, dan readdir. File dicek apakah namanya mengandung kata secret, dan jika iya, sistem akan mengecek waktu saat ini. Jika tidak dalam rentang waktu yang diizinkan, maka file tidak akan ditampilkan atau diakses.
 
 ```c
@@ -150,14 +156,13 @@ void filter_lawak(char *buf){
 Setiap file yang berhasil diakses (READ, ACCESS) harus dicatat ke file /var/log/lawakfs.log. File log akan menuliskan timestamp, UID, jenis akses, dan path file. Logging hanya dilakukan jika akses berhasil.
 
 ```c
-void tulis_log(const char *action, const char *path) {
+void tulis_log(const char *action, const char *path){
     if(strcmp(path, "/") == 0) return;
     FILE *f = fopen("/var/log/lawakfs.log", "a");
-    if (!f) return;
+    if(!f) return;
     time_t t = time(NULL);
     struct tm *tm = localtime(&t);
-    struct fuse_context *ctx = fuse_get_context();
-    uid_t uid = ctx ? ctx->uid : getuid();
+    uid_t uid = fuse_get_context()->uid;
     fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d] [%d] [%s] %s\n",
         tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
         tm->tm_hour, tm->tm_min, tm->tm_sec,
@@ -169,7 +174,7 @@ Lalu saya menjalankan `tail /var/log/lawakfs.log` untuk melihat log terbaru
 
 ![Screenshot from 2025-06-18 05-28-45](https://github.com/user-attachments/assets/7babedee-6202-4525-8d48-e0cb0c87b876)
 
-## d. Konfigurasi Eksternal lawak.conf
+## d. Konfigurasi
 Semua parameter konfigurasi, seperti nama file secret, daftar kata filter, dan rentang waktu akses, harus disimpan dalam file lawak.conf dan bisa diubah sewaktu-waktu tanpa recompile. Dimana saya isi file `lawak.conf` dengan:
 ```conf
 FILTER_WORDS=ducati,ferrari,mu,chelsea,prx,onic,sisop
